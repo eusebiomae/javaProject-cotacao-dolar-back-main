@@ -11,6 +11,7 @@ import java.net.URL;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 
@@ -64,40 +65,54 @@ public class MoedaService {
         return moedasLista;
     }
     
-    public List<Moeda> getCotacaoAtual() throws IOException, MalformedURLException, ParseException, URISyntaxException {
-    	
-        Date now = new Date();
-        String dataFormatada = new SimpleDateFormat("dd-MM-yyyy").format(now);
-
-        String urlString = "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='"
-                + dataFormatada + "'&$format=json";
-
-        URI uri = new URI(urlString);
-        URL url = uri.toURL();
-
-        HttpURLConnection request = (HttpURLConnection) url.openConnection();
-        request.connect();
-
-        JsonElement response = JsonParser.parseReader(new InputStreamReader((InputStream) request.getContent()));
-        JsonObject rootObj = response.getAsJsonObject();
-        JsonArray cotacoesArray = rootObj.getAsJsonArray("value");
-
+    public List<Moeda> getCotacaoAtual() throws IOException, URISyntaxException, ParseException {
         List<Moeda> moedasLista = new ArrayList<>();
 
-        for (JsonElement obj : cotacoesArray) {
-            Moeda moedaRef = new Moeda();
-            Date data = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-                    .parse(obj.getAsJsonObject().get("dataHoraCotacao").getAsString());
+        // busca nos últimos 7 dias ate encontrar última data de cotação do BACEN
+        int diasMaximosParaBuscar = 7;
 
-            moedaRef.preco = obj.getAsJsonObject().get("cotacaoCompra").getAsDouble();
-            moedaRef.data = new SimpleDateFormat("dd/MM/yyyy").format(data);
-            moedaRef.hora = new SimpleDateFormat("HH:mm:ss").format(data);
+        for (int i = 0; i < diasMaximosParaBuscar; i++) {
+            // Ajusta a data: hoje menos i dias
+            Calendar calendar = Calendar.getInstance();
+            calendar.add(Calendar.DATE, -i);
+            Date dataTentativa = calendar.getTime();
+            String dataFormatada = new SimpleDateFormat("dd-MM-yyyy").format(dataTentativa);
 
-            moedasLista.add(moedaRef);
+            // Monta a URL com a data atual da tentativa
+            String urlString = "https://olinda.bcb.gov.br/olinda/servico/PTAX/versao/v1/odata/CotacaoDolarDia(dataCotacao=@dataCotacao)?@dataCotacao='"
+                    + dataFormatada + "'&$format=json";
+
+            URI uri = new URI(urlString);
+            URL url = uri.toURL();
+
+            HttpURLConnection request = (HttpURLConnection) url.openConnection();
+            request.connect();
+
+            JsonElement response = JsonParser.parseReader(new InputStreamReader((InputStream) request.getContent()));
+            JsonObject rootObj = response.getAsJsonObject();
+            JsonArray cotacoesArray = rootObj.getAsJsonArray("value");
+
+            if (cotacoesArray != null && cotacoesArray.size() > 0) {
+                // Achamos cotação válida: processa e retorna
+                for (JsonElement obj : cotacoesArray) {
+                    Moeda moedaRef = new Moeda();
+                    Date data = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                            .parse(obj.getAsJsonObject().get("dataHoraCotacao").getAsString());
+
+                    moedaRef.preco = obj.getAsJsonObject().get("cotacaoCompra").getAsDouble();
+                    moedaRef.data = new SimpleDateFormat("dd/MM/yyyy").format(data);
+                    moedaRef.hora = new SimpleDateFormat("HH:mm:ss").format(data);
+
+                    moedasLista.add(moedaRef);
+                }
+                // Já encontramos, podemos parar o loop
+                break;
+            }
         }
 
         return moedasLista;
     }
+
 
     
     public List<Moeda> getCotacoesMenoresAtual(String startDate, String endDate)
